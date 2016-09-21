@@ -1,334 +1,23 @@
-/* LSM9DS1_MS5611_t3 Basic Example Code
- by: Kris Winer
- date: November 1, 2014
- license: Beerware - Use this code however you'd like. If you 
- find it useful you can buy me a beer some time.
- 
- Demonstrate basic LSM9DS1 functionality including parameterizing the register addresses, initializing the sensor, 
- getting properly scaled accelerometer, gyroscope, and magnetometer data out. Added display functions to 
- allow display to on breadboard monitor. Addition of 9 DoF sensor fusion using open source Madgwick and 
- Mahony filter algorithms. Sketch runs on the 3.3 V 8 MHz Pro Mini and the Teensy 3.1.
- 
- This sketch is intended specifically for the LSM9DS1+MS5611 Add-on shield for the Teensy 3.1.
- It uses SDA/SCL on pins 17/16, respectively, and it uses the Teensy 3.1-specific Wire library i2c_t3.h.
- The MS5611 is a simple but high resolution pressure sensor, which can be used in its high resolution
- mode but with power consumption od 20 microAmp, or in a lower resolution mode with power consumption of
- only 1 microAmp. The choice will depend on the application.
- 
- SDA and SCL should have external pull-up resistors (to 3.3V).
- 4K7 resistors are on the LSM9DS1+MS5611 Teensy 3.1 add-on shield/breakout board.
- 
- Hardware setup:
- LSM9DS1Breakout --------- Arduino
- VDD ---------------------- 3.3V
- VDDI --------------------- 3.3V
- SDA ----------------------- A4
- SCL ----------------------- A5
- GND ---------------------- GND
- 
- Note: The LSM9DS1 is an I2C sensor and can use the Arduino Wire library. 
- Because the sensor is not 5V tolerant, we are using either a 3.3 V 8 MHz Pro Mini or a 3.3 V Teensy 3.1.
- We have disabled the internal pull-ups used by the Wire library in the Wire.h/twi.c utility file.
- We are also using the 400 kHz fast I2C mode by setting the TWI_FREQ  to 400000L /twi.h utility file.
- */
-//#include "Wire.h"   
-#include <i2c_t3.h>
-#include <SPI.h>
-//#include <Adafruit_GFX.h>
-//#include <Adafruit_PCD8544.h>
+#ifndef LSM9DS1_cpp
+#define LSM9DS1_cpp
+#include<LSM9DS1.h>
 
-// Using NOKIA 5110 monochrome 84 x 48 pixel display
-// pin 7 - Serial clock out (SCLK)
-// pin 6 - Serial data out (DIN)
-// pin 5 - Data/Command select (D/C)
-// pin 3 - LCD chip select (SCE)
-// pin 4 - LCD reset (RST)
-//Adafruit_PCD8544 display = Adafruit_PCD8544(7, 6, 5, 3, 4);
+//===================================================================================================================
+//====== Set of useful function to access acceleration. gyroscope, magnetometer, and temperature data
+//===================================================================================================================
 
-// See MS5611-02BA03 Low Voltage Barometric Pressure Sensor Data Sheet
-#define MS5611_RESET      0x1E
-#define MS5611_CONVERT_D1 0x40
-#define MS5611_CONVERT_D2 0x50
-#define MS5611_ADC_READ   0x00
-
-// See also LSM9DS1 Register Map and Descriptions, http://www.st.com/st-web-ui/static/active/en/resource/technical/document/datasheet/DM00103319.pdf 
-//
-// Accelerometer and Gyroscope registers
-#define LSM9DS1XG_ACT_THS	    0x04
-#define LSM9DS1XG_ACT_DUR	    0x05
-#define LSM9DS1XG_INT_GEN_CFG_XL    0x06
-#define LSM9DS1XG_INT_GEN_THS_X_XL  0x07
-#define LSM9DS1XG_INT_GEN_THS_Y_XL  0x08
-#define LSM9DS1XG_INT_GEN_THS_Z_XL  0x09
-#define LSM9DS1XG_INT_GEN_DUR_XL    0x0A
-#define LSM9DS1XG_REFERENCE_G       0x0B
-#define LSM9DS1XG_INT1_CTRL         0x0C
-#define LSM9DS1XG_INT2_CTRL         0x0D
-#define LSM9DS1XG_WHO_AM_I          0x0F  // should return 0x68
-#define LSM9DS1XG_CTRL_REG1_G       0x10
-#define LSM9DS1XG_CTRL_REG2_G       0x11
-#define LSM9DS1XG_CTRL_REG3_G       0x12
-#define LSM9DS1XG_ORIENT_CFG_G      0x13
-#define LSM9DS1XG_INT_GEN_SRC_G     0x14
-#define LSM9DS1XG_OUT_TEMP_L        0x15
-#define LSM9DS1XG_OUT_TEMP_H        0x16
-#define LSM9DS1XG_STATUS_REG        0x17
-#define LSM9DS1XG_OUT_X_L_G         0x18
-#define LSM9DS1XG_OUT_X_H_G         0x19
-#define LSM9DS1XG_OUT_Y_L_G         0x1A
-#define LSM9DS1XG_OUT_Y_H_G         0x1B
-#define LSM9DS1XG_OUT_Z_L_G         0x1C
-#define LSM9DS1XG_OUT_Z_H_G         0x1D
-#define LSM9DS1XG_CTRL_REG4         0x1E
-#define LSM9DS1XG_CTRL_REG5_XL      0x1F
-#define LSM9DS1XG_CTRL_REG6_XL      0x20
-#define LSM9DS1XG_CTRL_REG7_XL      0x21
-#define LSM9DS1XG_CTRL_REG8         0x22
-#define LSM9DS1XG_CTRL_REG9         0x23
-#define LSM9DS1XG_CTRL_REG10        0x24
-#define LSM9DS1XG_INT_GEN_SRC_XL    0x26
-//#define LSM9DS1XG_STATUS_REG        0x27 // duplicate of 0x17!
-#define LSM9DS1XG_OUT_X_L_XL        0x28
-#define LSM9DS1XG_OUT_X_H_XL        0x29
-#define LSM9DS1XG_OUT_Y_L_XL        0x2A
-#define LSM9DS1XG_OUT_Y_H_XL        0x2B
-#define LSM9DS1XG_OUT_Z_L_XL        0x2C
-#define LSM9DS1XG_OUT_Z_H_XL        0x2D
-#define LSM9DS1XG_FIFO_CTRL         0x2E
-#define LSM9DS1XG_FIFO_SRC          0x2F
-#define LSM9DS1XG_INT_GEN_CFG_G     0x30
-#define LSM9DS1XG_INT_GEN_THS_XH_G  0x31
-#define LSM9DS1XG_INT_GEN_THS_XL_G  0x32
-#define LSM9DS1XG_INT_GEN_THS_YH_G  0x33
-#define LSM9DS1XG_INT_GEN_THS_YL_G  0x34
-#define LSM9DS1XG_INT_GEN_THS_ZH_G  0x35
-#define LSM9DS1XG_INT_GEN_THS_ZL_G  0x36
-#define LSM9DS1XG_INT_GEN_DUR_G     0x37
-//
-// Magnetometer registers
-#define LSM9DS1M_OFFSET_X_REG_L_M   0x05
-#define LSM9DS1M_OFFSET_X_REG_H_M   0x06
-#define LSM9DS1M_OFFSET_Y_REG_L_M   0x07
-#define LSM9DS1M_OFFSET_Y_REG_H_M   0x08
-#define LSM9DS1M_OFFSET_Z_REG_L_M   0x09
-#define LSM9DS1M_OFFSET_Z_REG_H_M   0x0A
-#define LSM9DS1M_WHO_AM_I           0x0F  // should be 0x3D
-#define LSM9DS1M_CTRL_REG1_M        0x20
-#define LSM9DS1M_CTRL_REG2_M        0x21
-#define LSM9DS1M_CTRL_REG3_M        0x22
-#define LSM9DS1M_CTRL_REG4_M        0x23
-#define LSM9DS1M_CTRL_REG5_M        0x24
-#define LSM9DS1M_STATUS_REG_M       0x27
-#define LSM9DS1M_OUT_X_L_M          0x28
-#define LSM9DS1M_OUT_X_H_M          0x29
-#define LSM9DS1M_OUT_Y_L_M          0x2A
-#define LSM9DS1M_OUT_Y_H_M          0x2B
-#define LSM9DS1M_OUT_Z_L_M          0x2C
-#define LSM9DS1M_OUT_Z_H_M          0x2D
-#define LSM9DS1M_INT_CFG_M          0x30
-#define LSM9DS1M_INT_SRC_M          0x31
-#define LSM9DS1M_INT_THS_L_M        0x32
-#define LSM9DS1M_INT_THS_H_M        0x33
-
-// Using the LSM9DS1+MS5611 Teensy 3.1 Add-On shield, ADO is set to 1 
-// Seven-bit device address of accel/gyro is 110101 for ADO = 0 and 110101 for ADO = 1
-#define ADO 1
-#if ADO
-#define LSM9DS1XG_ADDRESS 0x6B  //  Device address when ADO = 1
-#define LSM9DS1M_ADDRESS  0x1E  //  Address of magnetometer
-#define MS5611_ADDRESS    0x77  //  Address of altimeter
-#else
-#define LSM9DS1XG_ADDRESS 0x6A   //  Device address when ADO = 0
-#define LSM9DS1M_ADDRESS  0x1D   //  Address of magnetometer
-#define MS5611_ADDRESS    0x77   //  Address of altimeter
-#endif  
-
-#define SerialDebug true  // set to true to get Serial output for debugging
-
-// Set initial input parameters
-enum Ascale {  // set of allowable accel full scale settings
-  AFS_2G = 0,
-  AFS_16G,
-  AFS_4G,
-  AFS_8G
-};
-
-enum Aodr {  // set of allowable gyro sample rates
-  AODR_PowerDown = 0,
-  AODR_10Hz,
-  AODR_50Hz,
-  AODR_119Hz,
-  AODR_238Hz,
-  AODR_476Hz,
-  AODR_952Hz
-};
-
-enum Abw {  // set of allowable accewl bandwidths
-   ABW_408Hz = 0,
-   ABW_211Hz,
-   ABW_105Hz,
-   ABW_50Hz
-};
-
-enum Gscale {  // set of allowable gyro full scale settings
-  GFS_245DPS = 0,
-  GFS_500DPS,
-  GFS_NoOp,
-  GFS_2000DPS
-};
-
-enum Godr {  // set of allowable gyro sample rates
-  GODR_PowerDown = 0,
-  GODR_14_9Hz,
-  GODR_59_5Hz,
-  GODR_119Hz,
-  GODR_238Hz,
-  GODR_476Hz,
-  GODR_952Hz
-};
-
-enum Gbw {   // set of allowable gyro data bandwidths
-  GBW_low = 0,  // 14 Hz at Godr = 238 Hz,  33 Hz at Godr = 952 Hz
-  GBW_med,      // 29 Hz at Godr = 238 Hz,  40 Hz at Godr = 952 Hz
-  GBW_high,     // 63 Hz at Godr = 238 Hz,  58 Hz at Godr = 952 Hz
-  GBW_highest   // 78 Hz at Godr = 238 Hz, 100 Hz at Godr = 952 Hz
-};
-
-enum Mscale {  // set of allowable mag full scale settings
-  MFS_4G = 0,
-  MFS_8G,
-  MFS_12G,
-  MFS_16G
-};
-
-enum Mmode {
-  MMode_LowPower = 0, 
-  MMode_MedPerformance,
-  MMode_HighPerformance,
-  MMode_UltraHighPerformance
-};
-
-enum Modr {  // set of allowable mag sample rates
-  MODR_0_625Hz = 0,
-  MODR_1_25Hz,
-  MODR_2_5Hz,
-  MODR_5Hz,
-  MODR_10Hz,
-  MODR_20Hz,
-  MODR_80Hz
-};
-
-#define ADC_256  0x00 // define pressure and temperature conversion rates
-#define ADC_512  0x02
-#define ADC_1024 0x04
-#define ADC_2048 0x06
-#define ADC_4096 0x08
-#define ADC_D1   0x40
-#define ADC_D2   0x50
-
-// Specify sensor full scale
-uint8_t OSR = ADC_4096;      // set pressure amd temperature oversample rate
-uint8_t Gscale = GFS_245DPS; // gyro full scale
-uint8_t Godr = GODR_238Hz;   // gyro data sample rate
-uint8_t Gbw = GBW_med;       // gyro data bandwidth
-uint8_t Ascale = AFS_2G;     // accel full scale
-uint8_t Aodr = AODR_238Hz;   // accel data sample rate
-uint8_t Abw = ABW_50Hz;      // accel data bandwidth
-uint8_t Mscale = MFS_4G;     // mag full scale
-uint8_t Modr = MODR_10Hz;    // mag data sample rate
-uint8_t Mmode = MMode_HighPerformance;  // magnetometer operation mode
-float aRes, gRes, mRes;      // scale resolutions per LSB for the sensors
-  
-// Pin definitions
-int intPin = 15;  // These can be changed, 2 and 3 are the Arduinos ext int pins
-int myLed  = 13;
-
-uint16_t Pcal[8];         // calibration constants from MS5611 PROM registers
-unsigned char nCRC;       // calculated check sum to ensure PROM integrity
-uint32_t D1 = 0, D2 = 0;  // raw MS5611 pressure and temperature data
-double dT, OFFSET, SENS, T2, OFFSET2, SENS2;  // First order and second order corrections for raw S5637 temperature and pressure data
-int16_t accelCount[3], gyroCount[3], magCount[3];  // Stores the 16-bit signed accelerometer, gyro, and mag sensor output
-float gyroBias[3] = {0, 0, 0}, accelBias[3] = {0, 0, 0},  magBias[3] = {0, 0, 0}; // Bias corrections for gyro, accelerometer, and magnetometer
-int16_t tempCount;            // temperature raw count output
-float   temperature;          // Stores the LSM9DS1gyro internal chip temperature in degrees Celsius
-double Temperature, Pressure; // stores MS5611 pressures sensor pressure and temperature
-
-// global constants for 9 DoF fusion and AHRS (Attitude and Heading Reference System)
-float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
-float GyroMeasDrift = PI * (0.0f  / 180.0f);   // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
-// There is a tradeoff in the beta parameter between accuracy and response speed.
-// In the original Madgwick study, beta of 0.041 (corresponding to GyroMeasError of 2.7 degrees/s) was found to give optimal accuracy.
-// However, with this value, the LSM9SD0 response time is about 10 seconds to a stable initial quaternion.
-// Subsequent changes also require a longish lag time to a stable output, not fast enough for a quadcopter or robot car!
-// By increasing beta (GyroMeasError) by about a factor of fifteen, the response time constant is reduced to ~2 sec
-// I haven't noticed any reduction in solution accuracy. This is essentially the I coefficient in a PID control sense; 
-// the bigger the feedback coefficient, the faster the solution converges, usually at the expense of accuracy. 
-// In any case, this is the free parameter in the Madgwick filtering and fusion scheme.
-float beta = sqrt(3.0f / 4.0f) * GyroMeasError;   // compute beta
-float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;   // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
-#define Kp 2.0f * 5.0f // these are the free parameters in the Mahony filter and fusion scheme, Kp for proportional feedback, Ki for integral
-#define Ki 0.0f
-
-uint32_t delt_t = 0, count = 0, sumCount = 0;  // used to control display output rate
-float pitch, yaw, roll;
-float deltat = 0.0f, sum = 0.0f;          // integration interval for both filter schemes
-uint32_t lastUpdate = 0, firstUpdate = 0; // used to calculate integration interval
-uint32_t Now = 0;                         // used to calculate integration interval
-
-float ax, ay, az, gx, gy, gz, mx, my, mz; // variables to hold latest sensor data values 
-float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};    // vector to hold quaternion
-float eInt[3] = {0.0f, 0.0f, 0.0f};       // vector to hold integral error for Mahony method
-
-
-void setup()
-{
-//  Wire.begin();
-//  TWBR = 12;  // 400 kbit/sec I2C speed for Pro Mini
-  // Setup for Master mode, pins 16/17, external pullups, 400kHz for Teensy 3.1
-  Wire.begin(I2C_MASTER, 0x00, I2C_PINS_16_17, I2C_PULLUP_EXT, I2C_RATE_400);
-  delay(4000);
+LSM9DS1::LSM9DS1(i2c_pins pins, i2c_pullup pullup, i2c_rate rate) {
   Serial.begin(38400);
-  
-  // Set up the interrupt pin, its set as active high, push-pull
-  pinMode(intPin, INPUT);
-  pinMode(myLed, OUTPUT);
-  digitalWrite(myLed, HIGH);
-/*  
-  display.begin(); // Initialize the display
-  display.setContrast(40); // Set the contrast
-  
-// Start device display with ID of sensor
-  display.clearDisplay();
-  display.setTextSize(2);
-  display.setCursor(0,0); display.print("LSM9DS1");
-  display.setTextSize(1);
-  display.setCursor(0, 20); display.print("9-DOF 16-bit");
-  display.setCursor(0, 30); display.print("motion sensor");
-  display.setCursor(20,40); display.print("60 ug LSB");
-  display.display();
-  delay(1000);
+  Wire.begin(I2C_MASTER, 0x00, pins, pullup, rate);
+}
 
-// Set up for data display
-  display.setTextSize(1); // Set text size to normal, 2 is twice normal etc.
-  display.setTextColor(BLACK); // Set pixel color; 1 on the monochrome screen
-  display.clearDisplay();   // clears the screen and buffer
-*/
-
+void LSM9DS1::init() {
   // Read the WHO_AM_I registers, this is a good test of communication
   Serial.println("LSM9DS1 9-axis motion sensor...");
   byte c = readByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_WHO_AM_I);  // Read WHO_AM_I register for LSM9DS1 accel/gyro
   Serial.print("LSM9DS1 accel/gyro"); Serial.print("I AM "); Serial.print(c, HEX); Serial.print(" I should be "); Serial.println(0x68, HEX);
   byte d = readByte(LSM9DS1M_ADDRESS, LSM9DS1M_WHO_AM_I);  // Read WHO_AM_I register for LSM9DS1 magnetometer
   Serial.print("LSM9DS1 magnetometer"); Serial.print("I AM "); Serial.print(d, HEX); Serial.print(" I should be "); Serial.println(0x3D, HEX);
-/*
-  display.setCursor(20,0); display.print("LSM9DS1");
-  display.setCursor(0,10); display.print("I AM"); display.print(c, HEX);  
-  display.setCursor(0,20); display.print("I Should Be"); display.print(0x68, HEX); 
-  display.setCursor(0,30); display.print("I AM"); display.print(d, HEX);  
-  display.setCursor(0,40); display.print("I Should Be"); display.print(0x3D, HEX); 
-  display.display();
-  delay(1000); 
-  */
 
   if (c == 0x68 && d == 0x3D) // WHO_AM_I should always be 0x0E for the accel/gyro and 0x3C for the mag
   {  
@@ -357,24 +46,6 @@ void setup()
    initLSM9DS1(); 
    Serial.println("LSM9DS1 initialized for active data mode...."); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
 
-  /* display.clearDisplay();
-     
-  display.setCursor(0, 0); display.print("LSM9DS1bias");
-  display.setCursor(0, 8); display.print(" x   y   z  ");
-
-  display.setCursor(0,  16); display.print((int)(1000*accelBias[0])); 
-  display.setCursor(24, 16); display.print((int)(1000*accelBias[1])); 
-  display.setCursor(48, 16); display.print((int)(1000*accelBias[2])); 
-  display.setCursor(72, 16); display.print("mg");
-    
-  display.setCursor(0,  24); display.print(gyroBias[0], 1); 
-  display.setCursor(24, 24); display.print(gyroBias[1], 1); 
-  display.setCursor(48, 24); display.print(gyroBias[2], 1); 
-  display.setCursor(66, 24); display.print("o/s");   
- 
-  display.display();
-  delay(1000); 
- */ 
  // Reset the MS5611 pressure sensor
   MS5611Reset();
   delay(100);
@@ -395,13 +66,6 @@ void setup()
   nCRC = MS5611checkCRC(Pcal);  //calculate checksum to ensure integrity of MS5611 calibration data
   Serial.print("Checksum = "); Serial.print(nCRC); Serial.print(" , should be "); Serial.println(refCRC);  
   
-/*  display.clearDisplay();
-  display.setCursor(20,0); display.print("MS5611");
-  display.setCursor(0,10); display.print("CRC is "); display.setCursor(50,10); display.print(nCRC);
-  display.setCursor(0,20); display.print("Should be "); display.setCursor(50,30); display.print(refCRC);
-  display.display();
-  delay(1000);  
- */      
   }
   else
   {
@@ -411,8 +75,7 @@ void setup()
   }
 }
 
-void loop()
-{  
+void LSM9DS1::capture() {
   if (readByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_STATUS_REG) & 0x01) {  // check if new accel data is ready  
     readAccelData(accelCount);  // Read the x/y/z adc values
  
@@ -554,31 +217,7 @@ void loop()
     
     Serial.print("rate = "); Serial.print((float)sumCount/sum, 2); Serial.println(" Hz");
     }
-/*   
-    display.clearDisplay();    
- 
-    display.setCursor(0, 0); display.print(" x   y   z ");
 
-    display.setCursor(0,  8); display.print((int)(1000*ax)); 
-    display.setCursor(24, 8); display.print((int)(1000*ay)); 
-    display.setCursor(48, 8); display.print((int)(1000*az)); 
-    display.setCursor(72, 8); display.print("mg");
-    
-    display.setCursor(0,  16); display.print((int)(gx)); 
-    display.setCursor(24, 16); display.print((int)(gy)); 
-    display.setCursor(48, 16); display.print((int)(gz)); 
-    display.setCursor(66, 16); display.print("o/s");    
-
-    display.setCursor(0,  24); display.print((int)(mx)); 
-    display.setCursor(24, 24); display.print((int)(my)); 
-    display.setCursor(48, 24); display.print((int)(mz)); 
-    display.setCursor(72, 24); display.print("mG");    
- 
-    display.setCursor(0,  32); display.print((int)(yaw)); 
-    display.setCursor(24, 32); display.print((int)(pitch)); 
-    display.setCursor(48, 32); display.print((int)(roll)); 
-    display.setCursor(66, 32); display.print("ypr");  
- */ 
     // With these settings the filter is updating at a ~145 Hz rate using the Madgwick scheme and 
     // >200 Hz using the Mahony scheme even though the display refreshes at only 2 Hz.
     // The filter update rate is determined mostly by the mathematical steps in the respective algorithms, 
@@ -590,14 +229,7 @@ void loop()
     // stabilization control of a fast-moving robot or quadcopter. Compare to the update rate of 200 Hz
     // produced by the on-board Digital Motion Processor of Invensense's MPU6050 6 DoF and MPU9150 9DoF sensors.
     // The 3.3 V 8 MHz Pro Mini is doing pretty well!
-/*    display.setCursor(0, 40); display.print(altitude, 0); display.print("ft"); 
-    display.setCursor(68, 0); display.print(9.*Temperature/5. + 32., 0); 
-    display.setCursor(42, 40); display.print((float) sumCount / (1000.*sum), 2); display.print("kHz"); 
-    display.display();
-*/
 
-
-    digitalWrite(myLed, !digitalRead(myLed));
     count = millis(); 
     sumCount = 0;
     sum = 0;    
@@ -605,11 +237,7 @@ void loop()
 
 }
 
-//===================================================================================================================
-//====== Set of useful function to access acceleration. gyroscope, magnetometer, and temperature data
-//===================================================================================================================
-
-void getMres() {
+void LSM9DS1::getMres() {
   switch (Mscale)
   {
  	// Possible magnetometer scales (and their register bit settings) are:
@@ -629,7 +257,7 @@ void getMres() {
   }
 }
 
-void getGres() {
+void LSM9DS1::getGres() {
   switch (Gscale)
   {
  	// Possible gyro scales (and their register bit settings) are:
@@ -646,7 +274,7 @@ void getGres() {
   }
 }
 
-void getAres() {
+void LSM9DS1::getAres() {
   switch (Ascale)
   {
  	// Possible accelerometer scales (and their register bit settings) are:
@@ -667,7 +295,7 @@ void getAres() {
 }
 
 
-void readAccelData(int16_t * destination)
+void LSM9DS1::readAccelData(int16_t * destination)
 {
   uint8_t rawData[6];  // x/y/z accel register data stored here
   readBytes(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_L_XL, 6, &rawData[0]);  // Read the six raw data registers into data array
@@ -677,7 +305,7 @@ void readAccelData(int16_t * destination)
 }
 
 
-void readGyroData(int16_t * destination)
+void LSM9DS1::readGyroData(int16_t * destination)
 {
   uint8_t rawData[6];  // x/y/z gyro register data stored here
   readBytes(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_X_L_G, 6, &rawData[0]);  // Read the six raw data registers sequentially into data array
@@ -686,7 +314,7 @@ void readGyroData(int16_t * destination)
   destination[2] = ((int16_t)rawData[5] << 8) | rawData[4] ; 
 }
 
-void readMagData(int16_t * destination)
+void LSM9DS1::readMagData(int16_t * destination)
 {
     uint8_t rawData[6];  // x/y/z gyro register data stored here
     readBytes(LSM9DS1M_ADDRESS, LSM9DS1M_OUT_X_L_M, 6, &rawData[0]);  // Read the six raw data registers sequentially into data array
@@ -695,7 +323,7 @@ void readMagData(int16_t * destination)
     destination[2] = ((int16_t)rawData[5] << 8) | rawData[4] ; 
 }
 
-int16_t readTempData()
+int16_t LSM9DS1::readTempData()
 {
   uint8_t rawData[2];  // x/y/z gyro register data stored here
   readBytes(LSM9DS1XG_ADDRESS, LSM9DS1XG_OUT_TEMP_L, 2, &rawData[0]);  // Read the two raw data registers sequentially into data array 
@@ -703,7 +331,7 @@ int16_t readTempData()
 }
        
 
-void initLSM9DS1()
+void LSM9DS1::initLSM9DS1()
 {  
    // enable the 3-axes of the gyroscope
    writeByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_CTRL_REG4, 0x38);
@@ -726,7 +354,7 @@ void initLSM9DS1()
 }
 
 
-void selftestLSM9DS1()
+void LSM9DS1::selftestLSM9DS1()
 {
   float accel_noST[3] = {0., 0., 0.}, accel_ST[3] = {0., 0., 0.};
   float gyro_noST[3] = {0., 0., 0.}, gyro_ST[3] = {0., 0., 0.};
@@ -759,7 +387,7 @@ void selftestLSM9DS1()
 }
 // Function which accumulates gyro and accelerometer data after device initialization. It calculates the average
 // of the at-rest readings and then loads the resulting offsets into accelerometer and gyro bias registers.
-void accelgyrocalLSM9DS1(float * dest1, float * dest2)
+void LSM9DS1::accelgyrocalLSM9DS1(float * dest1, float * dest2)
 {  
   uint8_t data[6] = {0, 0, 0, 0, 0, 0};
   int32_t gyro_bias[3] = {0, 0, 0}, accel_bias[3] = {0, 0, 0};
@@ -850,7 +478,7 @@ void accelgyrocalLSM9DS1(float * dest1, float * dest2)
   writeByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_FIFO_CTRL, 0x00);  // Enable accel bypass mode
 }
 
-void magcalLSM9DS1(float * dest1) 
+void LSM9DS1::magcalLSM9DS1(float * dest1) 
 {
   uint8_t data[6]; // data array to hold mag x, y, z, data
   uint16_t ii = 0, sample_count = 0;
@@ -908,15 +536,15 @@ void magcalLSM9DS1(float * dest1)
 // For the MS5611, we write commands, and the MS5611 sends data in response, rather than directly reading
 // MS5611 registers
 
-        void MS5611Reset()
-        {
-        Wire.beginTransmission(MS5611_ADDRESS);  // Initialize the Tx buffer
+void LSM9DS1::MS5611Reset()
+{
+    Wire.beginTransmission(MS5611_ADDRESS);  // Initialize the Tx buffer
 	Wire.write(MS5611_RESET);                // Put reset command in Tx buffer
 	Wire.endTransmission();                  // Send the Tx buffer
-        }
+}
         
-        void MS5611PromRead(uint16_t * destination)
-        {
+void LSM9DS1::MS5611PromRead(uint16_t * destination)
+{
         uint8_t data[2] = {0,0};
         for (uint8_t ii = 0; ii <8; ii++) {
           Wire.beginTransmission(MS5611_ADDRESS);  // Initialize the Tx buffer
@@ -928,10 +556,10 @@ void magcalLSM9DS1(float * dest1)
           data[i++] = Wire.read(); }               // Put read results in the Rx buffer
           destination[ii] = (uint16_t) (((uint16_t) data[0] << 8) | data[1]); // construct PROM data for return to main program
         }
-        }
+}
 
-        uint32_t MS5611Read(uint8_t CMD, uint8_t OSR)  // temperature data read
-        {
+uint32_t LSM9DS1::MS5611Read(uint8_t CMD, uint8_t OSR)  // temperature data read
+{
         uint8_t data[3] = {0,0,0};
         Wire.beginTransmission(MS5611_ADDRESS);  // Initialize the Tx buffer
         Wire.write(CMD | OSR);                  // Put pressure conversion command in Tx buffer
@@ -954,11 +582,9 @@ void magcalLSM9DS1(float * dest1)
 	while (Wire.available()) {
         data[i++] = Wire.read(); }               // Put read results in the Rx buffer
         return (uint32_t) (((uint32_t) data[0] << 16) | (uint32_t) data[1] << 8 | data[2]); // construct PROM data for return to main program
-        }
+}
 
-
-
-unsigned char MS5611checkCRC(uint16_t * n_prom)  // calculate checksum from PROM register contents
+unsigned char LSM9DS1::MS5611checkCRC(uint16_t * n_prom)  // calculate checksum from PROM register contents
 {
 int cnt;               // simple counter
 unsigned int n_rem;    // crc reminder
@@ -991,7 +617,7 @@ return (n_rem ^ 0x0);
 
 // I2C read/write functions for the LSM9DS1and AK8963 sensors
 
-        void writeByte(uint8_t address, uint8_t subAddress, uint8_t data)
+void LSM9DS1::writeByte(uint8_t address, uint8_t subAddress, uint8_t data)
 {
 	Wire.beginTransmission(address);  // Initialize the Tx buffer
 	Wire.write(subAddress);           // Put slave register address in Tx buffer
@@ -999,7 +625,7 @@ return (n_rem ^ 0x0);
 	Wire.endTransmission();           // Send the Tx buffer
 }
 
-        uint8_t readByte(uint8_t address, uint8_t subAddress)
+uint8_t LSM9DS1::readByte(uint8_t address, uint8_t subAddress)
 {
 	uint8_t data; // `data` will store the register data	 
 	Wire.beginTransmission(address);         // Initialize the Tx buffer
@@ -1012,7 +638,7 @@ return (n_rem ^ 0x0);
 	return data;                             // Return data read from slave register
 }
 
-        void readBytes(uint8_t address, uint8_t subAddress, uint8_t count, uint8_t * dest)
+void LSM9DS1::readBytes(uint8_t address, uint8_t subAddress, uint8_t count, uint8_t * dest)
 {  
 	Wire.beginTransmission(address);   // Initialize the Tx buffer
 	Wire.write(subAddress);            // Put slave register address in Tx buffer
@@ -1025,3 +651,196 @@ return (n_rem ^ 0x0);
         dest[i++] = Wire.read(); }         // Put read results in the Rx buffer
 }
 
+// Implementation of Sebastian Madgwick's "...efficient orientation filter for... inertial/magnetic sensor arrays"
+// (see http://www.x-io.co.uk/category/open-source/ for examples and more details)
+// which fuses acceleration, rotation rate, and magnetic moments to produce a quaternion-based estimate of absolute
+// device orientation -- which can be converted to yaw, pitch, and roll. Useful for stabilizing quadcopters, etc.
+// The performance of the orientation filter is at least as good as conventional Kalman-based filtering algorithms
+// but is much less computationally intensive---it can be performed on a 3.3 V Pro Mini operating at 8 MHz!
+void LSM9DS1::MadgwickQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz)
+{
+            float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];   // short name local variable for readability
+            float norm;
+            float hx, hy, _2bx, _2bz;
+            float s1, s2, s3, s4;
+            float qDot1, qDot2, qDot3, qDot4;
+
+            // Auxiliary variables to avoid repeated arithmetic
+            float _2q1mx;
+            float _2q1my;
+            float _2q1mz;
+            float _2q2mx;
+            float _4bx;
+            float _4bz;
+            float _2q1 = 2.0f * q1;
+            float _2q2 = 2.0f * q2;
+            float _2q3 = 2.0f * q3;
+            float _2q4 = 2.0f * q4;
+            float _2q1q3 = 2.0f * q1 * q3;
+            float _2q3q4 = 2.0f * q3 * q4;
+            float q1q1 = q1 * q1;
+            float q1q2 = q1 * q2;
+            float q1q3 = q1 * q3;
+            float q1q4 = q1 * q4;
+            float q2q2 = q2 * q2;
+            float q2q3 = q2 * q3;
+            float q2q4 = q2 * q4;
+            float q3q3 = q3 * q3;
+            float q3q4 = q3 * q4;
+            float q4q4 = q4 * q4;
+
+            // Normalise accelerometer measurement
+            norm = sqrt(ax * ax + ay * ay + az * az);
+            if (norm == 0.0f) return; // handle NaN
+            norm = 1.0f/norm;
+            ax *= norm;
+            ay *= norm;
+            az *= norm;
+
+            // Normalise magnetometer measurement
+            norm = sqrt(mx * mx + my * my + mz * mz);
+            if (norm == 0.0f) return; // handle NaN
+            norm = 1.0f/norm;
+            mx *= norm;
+            my *= norm;
+            mz *= norm;
+
+            // Reference direction of Earth's magnetic field
+            _2q1mx = 2.0f * q1 * mx;
+            _2q1my = 2.0f * q1 * my;
+            _2q1mz = 2.0f * q1 * mz;
+            _2q2mx = 2.0f * q2 * mx;
+            hx = mx * q1q1 - _2q1my * q4 + _2q1mz * q3 + mx * q2q2 + _2q2 * my * q3 + _2q2 * mz * q4 - mx * q3q3 - mx * q4q4;
+            hy = _2q1mx * q4 + my * q1q1 - _2q1mz * q2 + _2q2mx * q3 - my * q2q2 + my * q3q3 + _2q3 * mz * q4 - my * q4q4;
+            _2bx = sqrt(hx * hx + hy * hy);
+            _2bz = -_2q1mx * q3 + _2q1my * q2 + mz * q1q1 + _2q2mx * q4 - mz * q2q2 + _2q3 * my * q4 - mz * q3q3 + mz * q4q4;
+            _4bx = 2.0f * _2bx;
+            _4bz = 2.0f * _2bz;
+
+            // Gradient decent algorithm corrective step
+            s1 = -_2q3 * (2.0f * q2q4 - _2q1q3 - ax) + _2q2 * (2.0f * q1q2 + _2q3q4 - ay) - _2bz * q3 * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (-_2bx * q4 + _2bz * q2) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + _2bx * q3 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+            s2 = _2q4 * (2.0f * q2q4 - _2q1q3 - ax) + _2q1 * (2.0f * q1q2 + _2q3q4 - ay) - 4.0f * q2 * (1.0f - 2.0f * q2q2 - 2.0f * q3q3 - az) + _2bz * q4 * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (_2bx * q3 + _2bz * q1) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + (_2bx * q4 - _4bz * q2) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+            s3 = -_2q1 * (2.0f * q2q4 - _2q1q3 - ax) + _2q4 * (2.0f * q1q2 + _2q3q4 - ay) - 4.0f * q3 * (1.0f - 2.0f * q2q2 - 2.0f * q3q3 - az) + (-_4bx * q3 - _2bz * q1) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (_2bx * q2 + _2bz * q4) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + (_2bx * q1 - _4bz * q3) * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+            s4 = _2q2 * (2.0f * q2q4 - _2q1q3 - ax) + _2q3 * (2.0f * q1q2 + _2q3q4 - ay) + (-_4bx * q4 + _2bz * q2) * (_2bx * (0.5f - q3q3 - q4q4) + _2bz * (q2q4 - q1q3) - mx) + (-_2bx * q1 + _2bz * q3) * (_2bx * (q2q3 - q1q4) + _2bz * (q1q2 + q3q4) - my) + _2bx * q2 * (_2bx * (q1q3 + q2q4) + _2bz * (0.5f - q2q2 - q3q3) - mz);
+            norm = sqrt(s1 * s1 + s2 * s2 + s3 * s3 + s4 * s4);    // normalise step magnitude
+            norm = 1.0f/norm;
+            s1 *= norm;
+            s2 *= norm;
+            s3 *= norm;
+            s4 *= norm;
+
+            // Compute rate of change of quaternion
+            qDot1 = 0.5f * (-q2 * gx - q3 * gy - q4 * gz) - beta * s1;
+            qDot2 = 0.5f * (q1 * gx + q3 * gz - q4 * gy) - beta * s2;
+            qDot3 = 0.5f * (q1 * gy - q2 * gz + q4 * gx) - beta * s3;
+            qDot4 = 0.5f * (q1 * gz + q2 * gy - q3 * gx) - beta * s4;
+
+            // Integrate to yield quaternion
+            q1 += qDot1 * deltat;
+            q2 += qDot2 * deltat;
+            q3 += qDot3 * deltat;
+            q4 += qDot4 * deltat;
+            norm = sqrt(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4);    // normalise quaternion
+            norm = 1.0f/norm;
+            q[0] = q1 * norm;
+            q[1] = q2 * norm;
+            q[2] = q3 * norm;
+            q[3] = q4 * norm;
+}
+  
+  
+  
+ // Similar to Madgwick scheme but uses proportional and integral filtering on the error between estimated reference vectors and
+ // measured ones. 
+void LSM9DS1::MahonyQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz)
+{
+            float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];   // short name local variable for readability
+            float norm;
+            float hx, hy, bx, bz;
+            float vx, vy, vz, wx, wy, wz;
+            float ex, ey, ez;
+            float pa, pb, pc;
+
+            // Auxiliary variables to avoid repeated arithmetic
+            float q1q1 = q1 * q1;
+            float q1q2 = q1 * q2;
+            float q1q3 = q1 * q3;
+            float q1q4 = q1 * q4;
+            float q2q2 = q2 * q2;
+            float q2q3 = q2 * q3;
+            float q2q4 = q2 * q4;
+            float q3q3 = q3 * q3;
+            float q3q4 = q3 * q4;
+            float q4q4 = q4 * q4;   
+
+            // Normalise accelerometer measurement
+            norm = sqrt(ax * ax + ay * ay + az * az);
+            if (norm == 0.0f) return; // handle NaN
+            norm = 1.0f / norm;        // use reciprocal for division
+            ax *= norm;
+            ay *= norm;
+            az *= norm;
+
+            // Normalise magnetometer measurement
+            norm = sqrt(mx * mx + my * my + mz * mz);
+            if (norm == 0.0f) return; // handle NaN
+            norm = 1.0f / norm;        // use reciprocal for division
+            mx *= norm;
+            my *= norm;
+            mz *= norm;
+
+            // Reference direction of Earth's magnetic field
+            hx = 2.0f * mx * (0.5f - q3q3 - q4q4) + 2.0f * my * (q2q3 - q1q4) + 2.0f * mz * (q2q4 + q1q3);
+            hy = 2.0f * mx * (q2q3 + q1q4) + 2.0f * my * (0.5f - q2q2 - q4q4) + 2.0f * mz * (q3q4 - q1q2);
+            bx = sqrt((hx * hx) + (hy * hy));
+            bz = 2.0f * mx * (q2q4 - q1q3) + 2.0f * my * (q3q4 + q1q2) + 2.0f * mz * (0.5f - q2q2 - q3q3);
+
+            // Estimated direction of gravity and magnetic field
+            vx = 2.0f * (q2q4 - q1q3);
+            vy = 2.0f * (q1q2 + q3q4);
+            vz = q1q1 - q2q2 - q3q3 + q4q4;
+            wx = 2.0f * bx * (0.5f - q3q3 - q4q4) + 2.0f * bz * (q2q4 - q1q3);
+            wy = 2.0f * bx * (q2q3 - q1q4) + 2.0f * bz * (q1q2 + q3q4);
+            wz = 2.0f * bx * (q1q3 + q2q4) + 2.0f * bz * (0.5f - q2q2 - q3q3);  
+
+            // Error is cross product between estimated direction and measured direction of gravity
+            ex = (ay * vz - az * vy) + (my * wz - mz * wy);
+            ey = (az * vx - ax * vz) + (mz * wx - mx * wz);
+            ez = (ax * vy - ay * vx) + (mx * wy - my * wx);
+            if (Ki > 0.0f)
+            {
+                eInt[0] += ex;      // accumulate integral error
+                eInt[1] += ey;
+                eInt[2] += ez;
+            }
+            else
+            {
+                eInt[0] = 0.0f;     // prevent integral wind up
+                eInt[1] = 0.0f;
+                eInt[2] = 0.0f;
+            }
+
+            // Apply feedback terms
+            gx = gx + Kp * ex + Ki * eInt[0];
+            gy = gy + Kp * ey + Ki * eInt[1];
+            gz = gz + Kp * ez + Ki * eInt[2];
+
+            // Integrate rate of change of quaternion
+            pa = q2;
+            pb = q3;
+            pc = q4;
+            q1 = q1 + (-q2 * gx - q3 * gy - q4 * gz) * (0.5f * deltat);
+            q2 = pa + (q1 * gx + pb * gz - pc * gy) * (0.5f * deltat);
+            q3 = pb + (q1 * gy - pa * gz + pc * gx) * (0.5f * deltat);
+            q4 = pc + (q1 * gz + pa * gy - pb * gx) * (0.5f * deltat);
+
+            // Normalise quaternion
+            norm = sqrt(q1 * q1 + q2 * q2 + q3 * q3 + q4 * q4);
+            norm = 1.0f / norm;
+            q[0] = q1 * norm;
+            q[1] = q2 * norm;
+            q[2] = q3 * norm;
+            q[3] = q4 * norm;
+ 
+}
+#endif
