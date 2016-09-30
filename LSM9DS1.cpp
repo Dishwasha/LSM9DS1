@@ -75,7 +75,16 @@ void LSM9DS1::init() {
   }
 }
 
-void LSM9DS1::capture() {
+LSM9DS1_data LSM9DS1::capture() {
+  LSM9DS1_data lsm9ds1_data = {
+    0,0,0,
+    0,0,0,
+    0,0,0,
+    0,0,0,0,
+    0.0,0.0,0.0,
+    0.0,0.0,0.0
+  };
+
   if (readByte(LSM9DS1XG_ADDRESS, LSM9DS1XG_STATUS_REG) & 0x01) {  // check if new accel data is ready  
     readAccelData(accelCount);  // Read the x/y/z adc values
  
@@ -181,7 +190,7 @@ void LSM9DS1::capture() {
  
      Pressure = (((D1*SENS)/pow(2, 21) - OFFSET)/pow(2, 15))/100;  // Pressure in mbar or Pa/100
   
-    float altitude = 145366.45*(1. - pow((Pressure/1013.25), 0.190284));
+    altitude = 145366.45*(1. - pow((Pressure/1013.25), 0.190284));
    
     if(SerialDebug) {
     Serial.print("Digital temperature value = "); Serial.print( (float)Temperature, 2); Serial.println(" C"); // temperature in degrees Celsius
@@ -234,6 +243,17 @@ void LSM9DS1::capture() {
     sumCount = 0;
     sum = 0;    
     }
+
+	lsm9ds1_data = (LSM9DS1_data){
+	  ax, ay, az,
+	  gx, gy, gz,
+	  mx, my, mz,
+	  q[0], q[1], q[2], q[3],
+	  altitude, Pressure, temperature,
+	  pitch, yaw, roll
+	};
+
+	return lsm9ds1_data;
 
 }
 

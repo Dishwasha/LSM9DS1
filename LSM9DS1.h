@@ -232,12 +232,24 @@ enum Modr {  // set of allowable mag sample rates
   MODR_80Hz
 };
 
+struct LSM9DS1_data
+{
+  float ax, ay, az;
+  float gx, gy, gz;
+  float mx, my, mz;
+  float q0, qx, qy, qz;
+  float altitude;
+  double temperature, pressure;
+  float pitch, yaw, roll;
+};
+
 class LSM9DS1
 {
 	public:
 	LSM9DS1(i2c_pins pins, i2c_pullup pullup, i2c_rate rate);
+
 	void init();
-	void capture();
+	LSM9DS1_data capture();
 
 	private:
 	float eInt[3] = {0.0f, 0.0f, 0.0f};       // vector to hold integral error for Mahony method
@@ -256,7 +268,7 @@ class LSM9DS1
 	int16_t accelCount[3], gyroCount[3], magCount[3];  // Stores the 16-bit signed accelerometer, gyro, and mag sensor output
 	float gyroBias[3] = {0, 0, 0}, accelBias[3] = {0, 0, 0},  magBias[3] = {0, 0, 0}; // Bias corrections for gyro, accelerometer, and magnetometer
 	int16_t tempCount;            // temperature raw count output
-	float   temperature;          // Stores the LSM9DS1gyro internal chip temperature in degrees Celsius
+	float   altitude, temperature;          // Stores the LSM9DS1gyro internal chip temperature in degrees Celsius
 	double Temperature, Pressure; // stores MS5611 pressures sensor pressure and temperature
 
 	// global constants for 9 DoF fusion and AHRS (Attitude and Heading Reference System)
